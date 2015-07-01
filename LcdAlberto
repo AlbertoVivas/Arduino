@@ -1,0 +1,204 @@
+/*
+ Ejemplo de uso de display LCD 16x2.  Usando la librería LiquidCrystal
+ library compatible con el driver de Hitachi HD44780 driver 
+*/
+
+// incluimos la libreria LiquidCrystal
+#include  <LiquidCrystal.h>
+
+// inicializamos la librería con los numeros pins del interfaz
+// cada LCD puede llevar sus propios numeros
+LiquidCrystal lcd(8, 13, 9, 4, 5, 6, 7);
+
+const int n_menu=5;
+const int n_sub =2;
+
+char p_bienvenida[11][16]={
+  "Gallinator v1.0",//0
+  "hecho por:",//1
+  "Alberto Vivas",//2
+  "use los botones",//3
+  "arriba y abajo ",//4
+  "sube y baja",//5
+  "el menu",//6
+  "izq y derecha",//7
+  "sube y baja",//8
+  "el submenu" ,//9
+  "         "};//10
+  //  menus   submenus  n_chars
+
+  
+char menu [n_menu][17]={
+  "Menu: Relog",//0
+  "Menu: Hora abrir",//1
+  "Menu: Hora cerra",//2
+  "Abrir Puerta",//3
+  "Cerrar Puerta"};//4
+//"1234567890123456",
+  
+char sub_menu[n_menu][n_sub][16]={
+  "Ver hora","",
+  "Ver hora","modificar",
+  "Ver hora","modificar",
+  "Si","No",
+  "Si","No"};
+  
+
+
+int adc_key_val[5] ={
+  50, 200, 400, 600, 800 };
+int NUM_KEYS = 5;
+int adc_key_in;
+int key=-1;
+int oldkey=-1;
+boolean luzEncendida=true;
+boolean cursorActivo=false;
+unsigned long time;
+int x=0;
+int y=0;
+
+void setup()
+{
+  lcd.clear(); 
+  lcd.begin(16, 2);
+  time = millis();
+  imp_pantalla(p_bienvenida[0],p_bienvenida[1],1000);//1
+  imp_pantalla(p_bienvenida[0],p_bienvenida[2],1000);//1
+  imp_pantalla(p_bienvenida[3],p_bienvenida[4],2000);//2
+  imp_pantalla(p_bienvenida[5],p_bienvenida[6],1000);//3
+  imp_pantalla(p_bienvenida[7],p_bienvenida[8],1000);//4
+  imp_pantalla(p_bienvenida[9],p_bienvenida[10],1000);//5
+  delay(1000);
+  lcd.clear();
+}
+
+void loop()
+{
+  // Si han pasado mas de 10 segundos apagamos la luz
+  if (millis()-time > 10000) {
+    pinMode(10, OUTPUT);
+    digitalWrite(10, LOW);
+    luzEncendida=false;
+  }
+  // Si han pasado mas de 5 segundos apagamos el cursor
+  if (millis()-time > 5000) {
+    lcd.noBlink();
+    cursorActivo=false;
+  } 
+
+  adc_key_in = analogRead(0);    // Leemos el valor de la pulsacion
+  key = get_key(adc_key_in);    // Obtenemos el boton pulsado
+
+  if (key != oldkey)   // if keypress is detected
+  {
+    delay(50);  // Espera para evitar los rebotes de las pulsaciones
+    adc_key_in = analogRead(0);    // Leemos el valor de la pulsacion
+    key = get_key(adc_key_in);    // Obtenemos el boton pulsado
+    if (key != oldkey)    
+    {
+      // TODO: falta la comprobacion de si se ha desbordado el tiempo
+      time = millis();  
+      if (!luzEncendida) {  // Al pulsar cualquier tecla encendemos la pantalla
+        pinMode(10, INPUT);
+        luzEncendida=true;
+      } 
+      else {  // si la pantalla esta encendida seguimos funcionando normalmente
+        oldkey = key;
+        if (key >=0){  // Si se ha pulsado cualquier tecla
+          lcd.blink();  // Mostramos el cursor parpadeando
+          cursorActivo=true;
+        }
+
+        imp_pantalla(menu[x],sub_menu[x][y],1000);
+        if (key == 0){  // Se ha pulsado la tecla derecha = menu++
+            x++; 
+          if(x > n_menu-1) x=0; //si supero el maximo de menus doy la vuelte
+          y=0;
+        }
+        if (key == 1) {  // Se ha pulsado la tecla arriba submenu++
+          y++;
+          if (y > n_sub-1) y=0;
+        }
+        if (key == 2) {  // Se ha pulsado la tecla abajo submenu--
+          y--;
+          if (y < 0) y=n_sub-1;
+        }
+        if (key == 3) {  // Se ha pulsado la tecla izquierda = menu --
+          x--;
+          if (x<0) x=n_menu-1; //si decremento demasiado pongo el maximo
+          y=0;
+        }
+        if (key == 4){  // Se ha pulsado la tecla de seleccion = ok
+          action(x,y);
+        }
+      }
+    }
+  }
+  delay(50);
+}
+
+// Convertimos el valor leido en analogico en un numero de boton pulsado
+int get_key(unsigned int input)
+{
+  int k;
+
+  for (k = 0; k < NUM_KEYS; k++)
+  {
+    if (input < adc_key_val[k])
+    {
+      return k;
+    }
+  }
+
+  if (k >= NUM_KEYS)k = -1;  // Error en la lectura
+  return k;
+}
+
+//imprimimos una pantalla:
+
+void imp_pantalla(char* ch1,char* ch2,int ret){
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(ch1);
+  lcd.setCursor(0,1); 
+  lcd.print(ch2);
+  delay(ret);
+}
+
+void action(int i_x, int i_y){
+
+  if(i_x==0 && i_y==0){ //estoy en relog ver hora
+    imp_pantalla("Son las ","/get hora :)",2000);
+  }
+  if(i_x==1 && i_y==0){ //estoy en hora abrir, ver hora
+    imp_pantalla("Hora de abrir","/get hora abr",2000);  
+  }
+  if(i_x==1 && i_y==1){ //estoy en hora abrir, set hora
+    imp_pantalla("Modif abrir","/set hora abr",2000);  
+  }
+  if(i_x==2 && i_y==0){ //estoy en hora cerrar, ver hora
+    imp_pantalla("Hora de cerrar","/get hora cer",2000);  
+  }
+  if(i_x==2 && i_y==1){ //estoy en hora cerrar, set hora
+    imp_pantalla("Modif cerrar","/set hora cer",2000);  
+  }
+  if(i_x==3 && i_y==0){ //estoy en abrir puerta, si
+    imp_pantalla("Abrir puerta","/motor abrir",2000);  
+  }
+  if(i_x==3 && i_y==1){ //estoy en abrir puerta, no
+    imp_pantalla("Abrir puerta","/motor nada",2000);  
+  }
+  if(i_x==4 && i_y==0){ //estoy en cerrar puerta, si
+    imp_pantalla("Cerrar puerta","/motor cerrar",2000);  
+  }
+  if(i_x==4 && i_y==1){ //estoy en abrir puerta, no
+    imp_pantalla("Cerrar puerta","/motor nada",2000);  
+  }
+  
+}
+
+
+
+//}
+
+
