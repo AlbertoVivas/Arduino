@@ -5,6 +5,9 @@
 
 // incluimos la libreria LiquidCrystal
 #include  <LiquidCrystal.h>
+//incluimos la libreria para i2c del relog de tiempo real
+#include "Wire.h"
+#define DS3231_I2C_ADDRESS 0x68
 
 // inicializamos la librería con los numeros pins del interfaz
 // cada LCD puede llevar sus propios numeros
@@ -37,12 +40,75 @@ char menu [n_menu][17]={
 //"1234567890123456",
   
 char sub_menu[n_menu][n_sub][16]={
-  "Ver hora","",
+  "Ver hora","Ver hora",
   "Ver hora","modificar",
   "Ver hora","modificar",
   "Si","No",
   "Si","No"};
   
+//Logo gallina
+
+byte customChar1[8] = {
+  0b00000,
+  0b00000,
+  0b00000,
+  0b00000,
+  0b00000,
+  0b10000,
+  0b01000,
+  0b11100
+};
+byte customChar2[8] = {
+  0b00010,
+  0b00001,
+  0b00011,
+  0b00011,
+  0b00011,
+  0b00011,
+  0b00001,
+  0b00000
+};
+byte customChar3[8] = {
+  0b10100,
+  0b11000,
+  0b11100,
+  0b10110,
+  0b11100,
+  0b10000,
+  0b11000,
+  0b11100
+};
+byte customChar4[8] = {
+  0b01111,
+  0b11110,
+  0b01111,
+  0b00111,
+  0b00011,
+  0b01001,
+  0b11100,
+  0b11100
+};
+byte customChar5[8] = {
+  0b11111,
+  0b00000,
+  0b01111,
+  0b10000,
+  0b11111,
+  0b11111,
+  0b00010,
+  0b00011
+};
+
+byte customChar6[8] = {
+  0b11110,
+  0b01110,
+  0b01110,
+  0b11110,
+  0b11100,
+  0b11000,
+  0b00000,
+  0b00000
+};
 
 
 int adc_key_val[5] ={
@@ -56,12 +122,42 @@ boolean cursorActivo=false;
 unsigned long time;
 int x=0;
 int y=0;
+byte o_hora;
+byte o_min;
+byte c_hora;
+byte c_min;
+
+// metodo que convierte numeros decimales a con codificacion binaria y viceversa
+byte decToBcd(byte val)
+{
+  return( (val/10*16) + (val%10) );
+}
+byte bcdToDec(byte val)
+{
+  return( (val/16*10) + (val%16) );
+}
 
 void setup()
 {
+  Wire.begin();
+  Serial.begin(9600);
+  Serial.println("Setup 0/");
+  // set the initial time here:
+  // DS3231 seconds, minutes, hours, day, date, month, year
+  setDS3231time(30,20,19,4,15,07,15);
+  lcd.createChar(0, customChar1);
+  lcd.createChar(1, customChar2);
+  lcd.createChar(2, customChar3);
+  lcd.createChar(3, customChar4);
+  lcd.createChar(4, customChar5);
+  lcd.createChar(5, customChar6);
+
+  
   lcd.clear(); 
   lcd.begin(16, 2);
   time = millis();
+  imp_logo(0,0,0,1,3000,true);
+  
   imp_pantalla(p_bienvenida[0],p_bienvenida[1],1000);//1
   imp_pantalla(p_bienvenida[0],p_bienvenida[2],1000);//1
   imp_pantalla(p_bienvenida[3],p_bienvenida[4],2000);//2
@@ -70,12 +166,19 @@ void setup()
   imp_pantalla(p_bienvenida[9],p_bienvenida[10],1000);//5
   delay(1000);
   lcd.clear();
+  pinMode (2, OUTPUT);    // Input4 conectada al pin 2 
+  pinMode (3, OUTPUT);    // Input3 conectada al pin 3
+  o_hora = 9;
+  o_min=0;
+  c_hora=21;
+  c_min=30;
 }
 
 void loop()
 {
-  // Si han pasado mas de 10 segundos apagamos la luz
-  if (millis()-time > 10000) {
+  //displayTime();
+  // Si han pasado mas de 12 segundos apagamos la luz
+  if (millis()-time > 12000) {
     pinMode(10, OUTPUT);
     digitalWrite(10, LOW);
     luzEncendida=false;
@@ -112,7 +215,7 @@ void loop()
         imp_pantalla(menu[x],sub_menu[x][y],1000);
         if (key == 0){  // Se ha pulsado la tecla derecha = menu++
             x++; 
-          if(x > n_menu-1) x=0; //si supero el maximo de menus doy la vuelte
+          if(x > n_menu-1) x=0; //si supero el maximo de menus doy la vuelta
           y=0;
         }
         if (key == 1) {  // Se ha pulsado la tecla arriba submenu++
@@ -131,6 +234,7 @@ void loop()
         if (key == 4){  // Se ha pulsado la tecla de seleccion = ok
           action(x,y);
         }
+        abroOcierro();
       }
     }
   }
@@ -154,6 +258,8 @@ int get_key(unsigned int input)
   return k;
 }
 
+
+
 //imprimimos una pantalla:
 
 void imp_pantalla(char* ch1,char* ch2,int ret){
@@ -165,40 +271,526 @@ void imp_pantalla(char* ch1,char* ch2,int ret){
   delay(ret);
 }
 
+void imp_logo(int x0,int y0,int x1, int y1,int del, boolean b){
+  if(b){
+  lcd.clear();
+  }
+  lcd.setCursor(x0,x0);
+  lcd.write((uint8_t)0);
+  lcd.write((uint8_t)1);
+  lcd.write((uint8_t)2);
+  lcd.setCursor(x1,y1);
+  lcd.write((uint8_t)3);
+  lcd.write((uint8_t)4);
+  lcd.write((uint8_t)5);
+  delay(del);  
+}
+
+
 void action(int i_x, int i_y){
 
   if(i_x==0 && i_y==0){ //estoy en relog ver hora
-    imp_pantalla("Son las ","/get hora :)",2000);
+    //imp_pantalla("Son las ","/get hora :)",2000);
+    displayTimeLcd();
+  }
+  if(i_x==0 && i_y==1){ //estoy en relog ver hora
+    //imp_pantalla("Son las ","/get hora :)",2000);
+    displayTimeLcd();
   }
   if(i_x==1 && i_y==0){ //estoy en hora abrir, ver hora
-    imp_pantalla("Hora de abrir","/get hora abr",2000);  
+    displayOTime();
+    //imp_pantalla("Hora de abrir","/get hora abr",2000);   
   }
   if(i_x==1 && i_y==1){ //estoy en hora abrir, set hora
-    imp_pantalla("Modif abrir","/set hora abr",2000);  
+   // imp_pantalla("Modif abrir","/set hora abr",2000); 
+    setOtime(); 
   }
   if(i_x==2 && i_y==0){ //estoy en hora cerrar, ver hora
-    imp_pantalla("Hora de cerrar","/get hora cer",2000);  
+    displayCTime();
+    //imp_pantalla("Hora de cerrar","/get hora cer",2000);  
   }
   if(i_x==2 && i_y==1){ //estoy en hora cerrar, set hora
-    imp_pantalla("Modif cerrar","/set hora cer",2000);  
+    //imp_pantalla("Modif cerrar","/set hora cer",2000);  
+    setCtime();
   }
   if(i_x==3 && i_y==0){ //estoy en abrir puerta, si
-    imp_pantalla("Abrir puerta","/motor abrir",2000);  
+    // Motor gira en un sentido
+    //imp_pantalla("Abrir puerta","/motor abrir",200);
+    imp_logo(0,0,0,1,30,true);
+    lcd.print(" abriendo!"); 
+    abrirPuerta();
   }
   if(i_x==3 && i_y==1){ //estoy en abrir puerta, no
-    imp_pantalla("Abrir puerta","/motor nada",2000);  
+    //imp_pantalla("Abrir puerta","/motor nada",2000);  
+    imp_logo(0,0,0,1,30,true);
+    lcd.print(" no abrir");
+    delay(2000); 
   }
   if(i_x==4 && i_y==0){ //estoy en cerrar puerta, si
-    imp_pantalla("Cerrar puerta","/motor cerrar",2000);  
+    //imp_pantalla("Cerrar puerta","/motor cerrar",2000);
+    imp_logo(0,0,0,1,30,true);
+    lcd.print(" cerrando!"); 
+    cerrarPuerta();
   }
   if(i_x==4 && i_y==1){ //estoy en abrir puerta, no
-    imp_pantalla("Cerrar puerta","/motor nada",2000);  
+    //imp_pantalla("Cerrar puerta","/motor nada",2000);  
+    imp_logo(0,0,0,1,30,true);
+    lcd.print(" no cerrar!");
+    delay(2000); 
   }
+  
+}
+void abrirPuerta(){
+    digitalWrite (2, HIGH);
+    digitalWrite (3, LOW); 
+    delay(4000);
+  // Motor no gira
+    digitalWrite (2, LOW);
+}
+void cerrarPuerta(){
+    digitalWrite (3, HIGH);
+    digitalWrite (2, LOW); 
+    delay(4000);
+    // Motor no gira
+    digitalWrite (3, LOW);
+}
+
+void setDS3231time(byte second, byte minute, byte hour, byte dayOfWeek, byte
+dayOfMonth, byte month, byte year)
+{
+  // sets time and date data to DS3231
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set next input to start at the seconds register
+  Wire.write(decToBcd(second)); // set seconds
+  Wire.write(decToBcd(minute)); // set minutes
+  Wire.write(decToBcd(hour)); // set hours
+  Wire.write(decToBcd(dayOfWeek)); // set day of week (1=Sunday, 7=Saturday)
+  Wire.write(decToBcd(dayOfMonth)); // set date (1 to 31)
+  Wire.write(decToBcd(month)); // set month
+  Wire.write(decToBcd(year)); // set year (0 to 99)
+  Wire.endTransmission();
+}
+void readDS3231time(byte *second,
+byte *minute,
+byte *hour,
+byte *dayOfWeek,
+byte *dayOfMonth,
+byte *month,
+byte *year)
+{
+  Wire.beginTransmission(DS3231_I2C_ADDRESS);
+  Wire.write(0); // set DS3231 register pointer to 00h
+  Wire.endTransmission();
+  Wire.requestFrom(DS3231_I2C_ADDRESS, 7);
+  // request seven bytes of data from DS3231 starting from register 00h
+  *second = bcdToDec(Wire.read() & 0x7f);
+  *minute = bcdToDec(Wire.read());
+  *hour = bcdToDec(Wire.read() & 0x3f);
+  *dayOfWeek = bcdToDec(Wire.read());
+  *dayOfMonth = bcdToDec(Wire.read());
+  *month = bcdToDec(Wire.read());
+  *year = bcdToDec(Wire.read());
+}
+void displayTime()
+{
+  byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+  // retrieve data from DS3231
+  readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month,
+  &year);
+  // send it to the serial monitor
+  Serial.print(hour, DEC);
+  // convert the byte variable to a decimal number when displayed
+  Serial.print(":");
+  if (minute<10)
+  {
+    Serial.print("0");
+  }
+  Serial.print(minute, DEC);
+  Serial.print(":");
+  if (second<10)
+  {
+    Serial.print("0");
+  }
+  Serial.print(second, DEC);
+  Serial.print(" ");
+  Serial.print(dayOfMonth, DEC);
+  Serial.print("/");
+  Serial.print(month, DEC);
+  Serial.print("/");
+  Serial.print(year, DEC);
+  Serial.print(" Day of week: ");
+  switch(dayOfWeek){
+  case 1:
+    Serial.println("Sunday");
+    break;
+  case 2:
+    Serial.println("Monday");
+    break;
+  case 3:
+    Serial.println("Tuesday");
+    break;
+  case 4:
+    Serial.println("Wednesday");
+    break;
+  case 5:
+    Serial.println("Thursday");
+    break;
+  case 6:
+    Serial.println("Friday");
+    break;
+  case 7:
+    Serial.println("Saturday");
+    break;
+  }
+}
+
+void displayTimeLcd()
+{
+  byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+  // retrieve data from DS3231
+  readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+  
+  lcd.clear();
+  imp_logo(0,0,0,1,30,false);
+  lcd.setCursor(3,0);
+  lcd.print(" Hora:");
+  lcd.setCursor(3,1);
+  if(hour <10){lcd.print("0");}
+  lcd.print(hour);
+  lcd.print(":");
+  if(minute <10){lcd.print("0");}
+  lcd.print(minute);
+  //lcd.print(":");
+  // lcd.setCursor(0,1);
+  //lcd.print(hour);
+  delay(3000);
+  
+}
+
+void displayOTime(){
+  Serial.print("Hora de apertura: ");
+  if(o_hora<10){Serial.print(0);}
+  Serial.print(o_hora);
+  Serial.print(":");
+  if(o_min<10){Serial.print(0);}
+  Serial.println(o_min);
+
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Hora apertura:");
+  lcd.setCursor(0,1);
+  if(o_hora<10){lcd.print(0);}
+  lcd.print(o_hora);
+  lcd.print(":");
+  if(o_min<10){lcd.print(0);}
+  lcd.print(o_min);
+  delay(2000);  
+
+
+  
+}
+
+void displayCTime(){
+  Serial.print("Hora de cierre: ");
+  Serial.print(c_hora);
+  if(c_hora<10){Serial.print(0);}
+  Serial.print(":");
+  if(c_min<10){Serial.print(0);}
+  Serial.println(c_min);
+
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Hora cierre:");
+  lcd.setCursor(0,1);
+  if(c_hora<10){lcd.print(0);}
+  lcd.print(c_hora);
+  lcd.print(":");
+  if(c_min<10){lcd.print(0);}
+  lcd.print(c_min);
+  delay(2000);
+}
+
+void setOtime(){
+  key=-1; //borro la ultima key
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Modif h_abrir:");
+  int pos=0;
+  byte n_o_hora = o_hora;
+  byte n_o_min = o_min;
+  lcd.setCursor(0,1);
+  if(o_hora<10){lcd.print(0);}
+  lcd.print(n_o_hora);
+  lcd.print(":");
+  if(o_min<10){lcd.print(0);}
+  lcd.print(n_o_min);
+  delay(2000);
+  boolean volver = true;
+  Serial.println("Estoy en setear open time");
+  Serial.print("mi variable volver: ");
+  Serial.println(volver);
+  while(volver){
+    delay(50);  // Espera para evitar los rebotes de las pulsaciones
+    adc_key_in = analogRead(0);    // Leemos el valor de la pulsacion
+    key = get_key(adc_key_in);    // Obtenemos el boton pulsado
+    //lcd.setCursor(pos,1);
+    if(key == 0){// pulso derecha
+      Serial.println("pulse derecha");
+      Serial.print("mi variable volver: ");
+      Serial.println(volver);
+      Serial.println("pos: "+pos);
+      //pos++;
+      //if(pos >= 5){pos=0;}
+      if(pos== 0){pos=3;}
+      if(pos== 3){pos=0;}
+      if(pos!= 0 && pos != 3){pos=0;}
+      lcd.setCursor(pos,1);
+      delay(50);
+      key=-1;
+    }
+    if(key == 3){//pulso izquierda
+     Serial.println("pulse izquierda");
+    Serial.print("mi variable volver: ");
+    Serial.println(volver);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("pulso Volver");
+      lcd.setCursor(0,1);
+      lcd.print("no hay cambios");
+      delay(2000);
+      volver = false;
+      key=-1;
+    }
+
+    if(key == 1){//pulso arriba incremento
+      Serial.println("pulsee arriba");
+    Serial.println("mi variable volver: "+volver);
+    Serial.print(n_o_hora);
+    Serial.print(":");
+    Serial.println(n_o_min);
+      n_o_min++;
+      if(n_o_min>=60){
+        n_o_min=0;
+        n_o_hora++;
+        if(n_o_hora >=24){
+          n_o_hora=0;
+          n_o_min=0;
+          }
+        }
+      impHoraLcd(n_o_hora,n_o_min);
+      delay(50);
+      key=-1;
+    }
+    if(key == 2){// pulso abajo decremento
+      Serial.println("pulse abajo");
+    Serial.print("mi variable volver: ");
+    Serial.println(volver);
+      n_o_min--;
+      if(n_o_min<0 || n_o_min>59){
+        n_o_min=59;
+        n_o_hora--;
+        if(n_o_hora <0){
+          n_o_hora=23;
+          n_o_min=59;
+          }
+        }
+      
+      impHoraLcd(n_o_hora,n_o_min);
+      delay(50);
+      key=-1;
+    }
+    if(key == 4){// pulso enter volcar los cambios
+      Serial.println("hago los cambios persistentes");
+     // Serial.println("Hora abrir: "+o_hora+":"+o_min);
+     // Serial.println("Nueva hora:"+n_o_hora+":"+n_o_min);
+      o_hora = n_o_hora;
+      o_min = n_o_min;
+      volver = false;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("ha cambiado la");
+      lcd.setCursor(0,1);
+      lcd.print("hora a: ");
+      if(o_hora<10){lcd.print(0);}
+      lcd.print(o_hora);
+      lcd.print(":");
+      if(o_min<10){lcd.print(0);}
+      lcd.print(o_min);
+      delay(2000);
+      key=-1;
+    }
+    
+  }
+  
+
+
+
   
 }
 
 
+void setCtime(){
+  key=-1; //borro la ultima key
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Modif h_cerrar:");
+  int pos=0;
+  byte n_c_hora = c_hora;
+  byte n_c_min = c_min;
+  lcd.setCursor(0,1);
+  if(c_hora<10){lcd.print(0);}
+  lcd.print(n_c_hora);
+  lcd.print(":");
+  if(c_min<10){lcd.print(0);}
+  lcd.print(n_c_min);
+  delay(2000);
+  boolean volver = true;
+  Serial.println("Estoy en setear open time");
+  Serial.print("mi variable volver: ");
+  Serial.println(volver);
+  while(volver){
+    delay(50);  // Espera para evitar los rebotes de las pulsaciones
+    adc_key_in = analogRead(0);    // Leemos el valor de la pulsacion
+    key = get_key(adc_key_in);    // Obtenemos el boton pulsado
+    //lcd.setCursor(pos,1);
+    if(key == 0){// pulso derecha
+      Serial.println("pulse derecha");
+      Serial.print("mi variable volver: ");
+      Serial.println(volver);
+      Serial.println("pos: "+pos);
+      //pos++;
+      //if(pos >= 5){pos=0;}
+      if(pos== 0){pos=3;}
+      if(pos== 3){pos=0;}
+      if(pos!= 0 && pos != 3){pos=0;}
+      lcd.setCursor(pos,1);
+      delay(50);
+      key=-1;
+    }
+    if(key == 3){//pulso izquierda
+     Serial.println("pulse izquierda");
+    Serial.print("mi variable volver: ");
+    Serial.println(volver);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("pulso Volver");
+      lcd.setCursor(0,1);
+      lcd.print("no hay cambios");
+      delay(2000);
+      volver = false;
+      key=-1;
+    }
 
+    if(key == 1){//pulso arriba incremento
+      Serial.println("pulsee arriba");
+    Serial.println("mi variable volver: "+volver);
+    Serial.print(n_c_hora);
+    Serial.print(":");
+    Serial.println(n_c_min);
+      n_c_min++;
+      if(n_c_min>=60){
+        n_c_min=0;
+        n_c_hora++;
+        if(n_c_hora >=24){
+          n_c_hora=0;
+          n_c_min=0;
+          }
+        }
+      impHoraLcd(n_c_hora,n_c_min);
+      delay(50);
+      key=-1;
+    }
+    if(key == 2){// pulso abajo decremento
+      Serial.println("pulse abajo");
+    Serial.print("mi variable volver: ");
+    Serial.println(volver);
+      n_c_min--;
+      if(n_c_min<0 || n_c_min>59){
+        n_c_min=59;
+        n_c_hora--;
+        if(n_c_hora <0){
+          n_c_hora=23;
+          n_c_min=59;
+          }
+        }
+      
+      impHoraLcd(n_c_hora,n_c_min);
+      delay(50);
+      key=-1;
+    }
+    if(key == 4){// pulso enter volcar los cambios
+      Serial.println("hago los cambios persistentes");
+     // Serial.println("Hora abrir: "+o_hora+":"+o_min);
+     // Serial.println("Nueva hora:"+n_o_hora+":"+n_o_min);
+      c_hora = n_c_hora;
+      c_min = n_c_min;
+      volver = false;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("ha cambiado la");
+      lcd.setCursor(0,1);
+      lcd.print("hora a: ");
+      if(c_hora<10){lcd.print(0);}
+      lcd.print(c_hora);
+      lcd.print(":");
+      if(c_min<10){lcd.print(0);}
+      lcd.print(c_min);
+      delay(2000);
+      key=-1;
+    }
+    
+  } 
+}
+
+
+void abroOcierro(){
+  byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
+  // retrieve data from DS3231
+  readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
+
+
+  if(hour == o_hora && minute == o_min){ //si la hora actual es igual a la hora de apertura
+    abrirPuerta();
+  }
+  if(hour == c_hora && minute == c_min){//si la hora actual es igual a la hora de cierre
+    cerrarPuerta();
+  }
+}
+void impHoraLcd(byte h, byte m ){
+  lcd.setCursor(0,1);
+  if(h<10){lcd.print("0");}
+  lcd.print(h);
+  lcd.print(":");
+  if(m<10){lcd.print("0");}
+  lcd.print(m);
+}
+
+
+int bin2dec(byte b)
+{
+ int dec = 0;
+ int power = 1;
+ byte mask; 
+ int weight;
+ 
+ for (mask = 0x01; mask; mask <<= 1)
+ {
+   if (b & mask)
+   {
+     weight = 1;     
+   }
+   else
+   {
+     weight = 0;     
+   }
+   
+   dec = dec + (power * weight);   
+   power = power * 2; 
+   
+}
+ return dec;
+}
 //}
 
 
